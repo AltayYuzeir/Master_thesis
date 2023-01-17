@@ -1,0 +1,107 @@
+---
+title: "Raredon data processing"
+author: "Altay Yuzeir"
+date: "2022-12-21"
+output: html_document
+---
+
+```{r}
+library(Seurat)
+library(tidyverse)
+```
+
+# We will create a Seurat object from the files found in for male and female mouse
+https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE133747
+
+```{r}
+#Male mouse
+counts = Read10X("Raredon_male", cell.column = 2, gene.column = 2)
+seurat_m = CreateSeuratObject(counts)
+cell_types = read_tsv(file = "Raredon_male/mMouse.idents.tsv", col_names = T)
+seurat_m@meta.data = cbind(seurat_m@meta.data, cell_types)
+seurat_m@meta.data$Barcode_orig = row.names(seurat_m@meta.data)
+saveRDS(seurat_m, file = "Raredon_male_mouse_lung_WT.rds")
+
+# Female mouse
+counts = Read10X("Raredon_female", cell.column = 2, gene.column = 2)
+seurat_f = CreateSeuratObject(counts)
+cell_types = read_tsv(file = "Raredon_female/fMouse.idents.tsv", col_names = T)
+seurat_f@meta.data = cbind(seurat_f@meta.data, cell_types)
+seurat_f@meta.data$Barcode_orig = row.names(seurat_f@meta.data)
+saveRDS(seurat_f, file = "Raredon_female_mouse_lung_WT.rds")
+
+# Combine both 
+seurat_f = readRDS("Raredon_female_mouse_lung_WT.rds")
+seurat_m = readRDS("Raredon_male_mouse_lung_WT.rds")
+
+seurat_comb = merge(seurat_m, y = seurat_f, add.cell.ids = c("m", "f"))
+seurat_comb@meta.data$dataset = "Raredon"
+
+Idents(seurat_comb) = "celltype"
+#saveRDS(seurat_comb, file = "Raredon_combined_mouse_lung_WT.rds")
+```
+
+# We can run standard Seurta clustering
+```{r}
+#seurat_raredon = readRDS("Raredon_combined_mouse_lung_WT.rds")
+seurat_raredon = seurat_comb
+all.genes <- rownames(seurat_raredon)
+
+seurat_raredon <- NormalizeData(seurat_raredon)
+seurat_raredon <- ScaleData(seurat_raredon, features = all.genes)
+seurat_raredon <- RunPCA(seurat_raredon, features = all.genes)
+
+seurat_raredon <- FindNeighbors(seurat_raredon, dims = 1:30)
+seurat_raredon <- FindClusters(seurat_raredon, resolution = 1)
+
+seurat_raredon <- RunUMAP(seurat_raredon, dims = 1:30)
+pdf(file = "dimplot.pdf", width = 8, height = 4)
+DimPlot(seurat_raredon, reduction = "umap", label = T, repel = T) + NoLegend()
+dev.off()
+
+saveRDS(seurat_raredon, "Raredon_combined_mouse_lung_WT.rds")
+```
+
+```{r}
+pdf(file = paste0("rare_cl",".pdf"), width = 4, height = 6)
+p = DimPlot(seurat_raredon, reduction = "umap", pt.size = 0.5, 
+        label = F, repel = T, group.by = "seurat_clusters") + NoLegend() +
+  ggtitle("UMAP clusters Raredon et al.") + ylab("UMAP 2") + xlab("UMAP 1")
+LabelClusters(p, id = "seurat_clusters",  fontface = "bold", color = "black")
+dev.off()
+```
+
+
+# After clustering, we will analyze some key markers for DCs and fibroblasts
+```{r}
+DotPlot(seurat_raredon, 
+        features = c("Itgam","Sirpa","Mgl2", "Flt3", "Xcr1","Pdgfra","Epcam","Itgae"),
+        group.by = "seurat_clusters"
+        )
+```
+
+
+```{r}
+pdf(file = "rare_dc_fibro.pdf", width = 7, height = 8)
+Stacked_VlnPlot(seurat_object = seurat_raredon, 
+                group.by = "seurat_clusters",
+                features = rev(c( "Flt3", "Itgam", "Mgl2", 
+                                  "Xcr1", "Siglech", "Ccr7", 
+                                  "Pdgfra", "Col1a1", "Epcam")),
+                x_lab_rotate = 90) & 
+  theme(axis.title.y = element_text(angle = 90))
+dev.off()
+```
+
+We can identify cluster 17 as cDC2
+```{r}
+seurat_raredon_cDC2 = subset(seurat_raredon, subset = seurat_clusters %in%
+                               c(17))
+```
+
+We can take cluster 5 as fibroblasts 
+```{r}
+seurat_raredon_fibro = subset(seurat_raredon, subset = seurat_clusters %in%
+                                 c(5))
+```
+

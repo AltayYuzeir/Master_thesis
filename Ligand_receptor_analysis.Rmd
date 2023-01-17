@@ -1,0 +1,314 @@
+---
+title: "Ligand receptor analysis"
+author: "Altay Yuzeir"
+date: "2022-12-22"
+output: html_document
+---
+
+# Merge the cDC2 and Fibroblast into single Seurat object
+```{r}
+
+seurat_final = merge(x = true_cDC2, y = adv_fibro, add.cell.ids = c("c","f"))
+DefaultAssay(seurat_final) = "RNA"
+all.genes <- rownames(seurat_final)
+
+seurat_final <- NormalizeData(seurat_final)
+seurat_final <- ScaleData(seurat_final, features = all.genes)
+seurat_final <- RunPCA(seurat_final, features = all.genes)
+
+seurat_final <- FindNeighbors(seurat_final, dims = 1:30)
+seurat_final <- FindClusters(seurat_final, resolution = 1)
+
+seurat_final <- RunUMAP(seurat_final, dims = 1:30)
+DimPlot(seurat_final, reduction = "umap", label = F, repel = F, group.by = "new_celltype")
+DimPlot(seurat_final, reduction = "umap", label = F, repel = F, group.by = "dataset")
+DimPlot(seurat_final, reduction = "umap", label = T, repel = F, group.by = "seurat_clusters") + NoLegend()
+
+```
+
+# We will now run Liana with mouse genese
+```{r}
+rownames(seurat_final@assays$RNA@counts) <- stringr::str_to_title(rownames(seurat_final@assays$RNA@counts))
+rownames(seurat_final@assays$RNA@data) <- stringr::str_to_title(rownames(seurat_final@assays$RNA@data))
+
+op_resource <- select_resource("Consensus")[[1]]
+
+# Generate orthologous resource
+ortholog_resource <- generate_homologs(op_resource = op_resource,
+                                       target_organism = 10090) # mouse
+```
+
+Create Liana with 6 built-in methods
+```{r}
+start_default4 = Sys.time()
+liana_default4 = liana_wrap(seurat_final,
+                   resource = 'custom', 
+                   external_resource = ortholog_resource, 
+                   method = c(
+                              "logfc","connectome",
+                              "sca", "natmi"),
+                   idents_col = "new_celltype"
+                   )
+end_default4 = Sys.time()
+duration_default4 = end_default4 - start_default4
+duration_default4
+
+start_extra = Sys.time()
+liana_extra = liana_wrap(seurat_final, resource = "custom",
+                         external_resource = ortholog_resource,
+                         method = c(
+                                    "cytotalk"
+                                    ),
+                         idents_col = "new_celltype"
+
+                         )
+end_extra = Sys.time()
+duration_extra = end_extra - start_extra
+duration_extra
+
+liana_extra = list(cytotalk = liana_extra)
+
+start_cellphone = Sys.time()
+liana_cellphone = liana_wrap(seurat_final, resource = "custom",
+                         external_resource = ortholog_resource,
+                         method = "cellphonedb", 
+                         idents_col = "new_celltype",
+                         permutation.params = list(nperms = 100))
+end_cellphone = Sys.time()
+duration_cellphone = end_cellphone - start_cellphone
+duration_cellphone
+
+liana_cellphone = list(cellphonedb = liana_cellphone)
+
+liana_all_methods = c(liana_extra, liana_default4, liana_cellphone)
+
+saveRDS(liana_all_methods, "Fibro_cDC2_combined_mouse_all_methods.rds")
+
+```
+
+# We will now plot the resulting data, but we weill use a custom function for better plotting. This function merged Liana funtion with SCpubr function
+```{r}
+#liana_all_methods = readRDS("Fibro_cDC2_combined_mouse_all_methods.rds")
+liana_agg = liana_aggregate(liana_all_methods)
+
+source(file = "custom_functions.R")
+
+p = custom_LIANA_dotplot(
+  
+  liana_res = liana_agg,
+  top_interactions = 40,
+  source_groups = c("Adventitial_Fibroblasts"),
+  target_groups = c("cDC2"),
+  scale_color.viridis = "G",
+  sort_for = "specificty",
+)
+p
+```
+
+```{r}
+t = custom_LIANA_dotplot(
+  liana_res = liana_agg,
+  top_interactions = 40,
+  source_groups = c("Adventitial_Fibroblasts"),
+  target_groups = c("non_cDC2"),
+  scale_color.viridis = "G",
+  sort_for = "specificty",
+)
+t
+```
+
+# Lets now also have a look of the identified ligands and receptors are expressed by fibroblats and cDC2s respectively
+```{r}
+top_interaction = custom_LIANA_top_interactions(
+                                liana_agg,
+                                top_N_interactions = 40,
+                                target_groups = c("cDC2"),
+                                source_groups = c("Adventitial_Fibroblasts"),
+                                  sort_for = "specificity"
+                                )
+
+top_interaction2 = custom_LIANA_top_interactions(
+                                liana_agg,
+                                top_N_interactions = 40,
+                                target_groups = c("non_cDC2"),
+                                source_groups = c("Adventitial_Fibroblasts"),
+                                  sort_for = "specificity"
+                                )
+
+int = unique(top_interaction$interaction)
+int2 = unique(top_interaction2$interaction)
+int3 = int[!int %in% int2]
+int3 # unique interactions with cDC2 targets only
+```
+
+# We will try to varify our pairs with NicheNet
+```{r}
+seurat_nichenet = merge(x = true_cDC2, y = adv_fibro, add.cell.ids = c("c","f"))
+DefaultAssay(seurat_nichenet) = "RNA"
+Idents(seurat_nichenet) = "new_celltype"
+seurat_nichenet = NormalizeData(seurat_nichenet)
+
+receiver.cells = subset(seurat_nichenet@meta.data,
+                                new_celltype=="cDC2") %>% rownames()
+sender.cells = subset(seurat_nichenet@meta.data,
+                              new_celltype=="Adventitial_Fibroblasts") %>% rownames()
+
+label.sender.cells = "Adventitial_Fibroblasts"
+label.receiver.cells = "cDC2"
+## DEGs
+
+DE_table_receiver = FindMarkers(object = seurat_nichenet, ident.1 = receiver.cells, 
+                                min.pct = 0.10, logfc.threshold = 0.25) %>% tibble::rownames_to_column("gene")
+```
+
+# We will get necessary databases
+```{r}
+#ligand_target_matrix = readRDS(url("https://zenodo.org/record/3260758/files/ligand_target_matrix.rds"))
+ # weighted_networks = readRDS(url("https://zenodo.org/record/3260758/files/weighted_networks.rds"))
+ # ligand_tf_matrix = readRDS(url("https://zenodo.org/record/3260758/files/ligand_tf_matrix.rds"))
+ # lr_network = readRDS(url("https://zenodo.org/record/3260758/files/lr_network.rds"))
+ # sig_network = readRDS(url("https://zenodo.org/record/3260758/files/signaling_network.rds"))
+ # gr_network = readRDS(url("https://zenodo.org/record/3260758/files/gr_network.rds"))
+
+ # saveRDS(ligand_target_matrix, file = "nichenetr_ligand_target_matrix.rds")
+ # saveRDS(weighted_networks, file = "nichenetr_weighted_networks.rds")
+ # saveRDS(ligand_tf_matrix, file = "nichenetr_ligand_tf_matrix.rds")
+ # saveRDS(lr_network, file = "nichenetr_lr_network.rds")
+ # saveRDS(sig_network, file = "nichenetr_signaling_network.rds")
+ # saveRDS(gr_network, file = "nichenetr_gr_network.rds")
+
+```
+
+
+```{r}
+source(file = "custom_functions.R")
+nichenet_data = nichenetr_all_genes(seurat_final, 
+                                    receiver.cells, 
+                                    sender.cells, 
+                                    DE_table_receiver,
+                                    label.receiver.cells, 
+                                    label.sender.cells,
+                                    top_n_target_per_ligand = 100, 
+                                    geneset_oi_avg_log2FC = 1, 
+                                    best_ligand_top_n = 40)
+```
+
+```{r}
+nichenet_data$p_hist_lig_activity
+nichenet_data$p_ligand_target_network
+```
+
+
+```{r}
+tiff(file = "nichenet_LR.tiff", width = 2800, height = 1600, res = 300)
+nichenet_data$p_ligand_receptor_network
+dev.off()
+```
+
+# Let's try to overlay the Liana pairs with NicheNet pairs
+```{r}
+ligands_liana = unique(top_interaction$ligand.complex)
+receptors_liana = unique(top_interaction$receptor.complex)
+
+saveRDS(ligands_liana, "ligands_liana.rds")
+saveRDS(receptors_liana, "receptors_liana.rds")
+
+```
+
+Now we will identify ligands and receptors with non zero interaction from NicheNet
+```{r}
+nichenet_overlay = nichenet_data$p_ligand_receptor_network$data
+nichenet_overlay = subset(nichenet_overlay, score > 0)
+
+ligands_nichenet = unique(as.character(nichenet_overlay$y))
+receptors_nichenet = unique(as.character(nichenet_overlay$x))
+
+saveRDS(ligands_nichenet, "ligands_nichenet.rds")
+saveRDS(receptors_nichenet, "receptors_nichenet.rds")
+```
+
+# Lets now examine overlap of the ligands and receptors as interaction pairs 
+```{r}
+pairs_liana = top_interaction$interaction
+
+nichenet_overlay = unite(data = nichenet_overlay, 
+                      all_of(c("y","x")),
+                      col = "Interaction", sep = " => ", remove = F)
+
+pairs_nichenet = nichenet_overlay$Interaction
+
+saveRDS(pairs_liana, "pairs_liana.rds")
+saveRDS(pairs_nichenet, "pairs_nichenet.rds")
+
+shared_pairs = pairs_nichenet[pairs_nichenet %in% pairs_liana]
+shared_pairs_df = nichenet_overlay[nichenet_overlay$Interaction %in% 
+                                     shared_pairs,]
+```
+
+```{r}
+pdf(file = "adv_fibro_lig.pdf", width = 6, height = 4)
+Stacked_VlnPlot(adv_fibro, features = unique(shared_pairs_df$y),
+                group.by = "new_celltype")
+dev.off()
+
+pdf(file = "cDC2_rec.pdf", width = 6, height = 4)
+Stacked_VlnPlot(true_cDC2, features = shared_pairs_df$x, group.by = "new_celltype")
+dev.off()
+```
+
+
+We will make a Venn diagram out of both sets
+```{r}
+library(VennDiagram)
+```
+
+```{r}
+venn.diagram(
+  
+        # 1
+        # x = list(ligands_liana, ligands_nichenet),
+        # category.names = c("Liana ligands" , "Nichenet ligands"),
+        # filename = 'ligands_venn_diagramm.png',
+        
+        # 2
+        # x = list(receptors_liana, receptors_nichenet),
+        # category.names = c("Liana receptors" , "Nichenet receptors"),
+        # filename = 'receptors_venn_diagramm.png',
+        
+        # 3
+        x = list(pairs_liana, pairs_nichenet),
+        category.names = c("Liana LR pairs" , "Nichenet LR pairs"),
+        filename = 'LR_pairs_venn_diagramm.png',
+        
+        disable.logging = T,
+        output=TRUE,
+        
+        # Output features
+        imagetype="png" ,
+        height = 1080 , 
+        width = 1080 , 
+        resolution = 600,
+        compression = "lzw",
+        
+        # Circles
+        lwd = 2,
+        lty = 'blank',
+        col=c("#440154ff", '#21908dff'),
+        fill = c(alpha("#440154ff",0.6), alpha('#21908dff',0.6)),
+        
+        # Numbers
+        cex = .4,
+        fontface = "bold",
+        fontfamily = "sans",
+        
+        # Set names
+        cat.cex = 0.4,
+        #cat.fontface = "bold",
+        cat.default.pos = "outer",
+        cat.pos = c(-27, 27),
+        cat.dist = c(-0.055, -0.055),
+        cat.fontfamily = "sans",
+        cat.col = c("black", "black")
+)
+```
+

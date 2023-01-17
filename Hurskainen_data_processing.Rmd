@@ -1,0 +1,89 @@
+---
+title: "Hurskainen data processing"
+author: "Altay Yuzeir"
+date: "2022-12-21"
+output: html_document
+---
+
+
+```{r}
+library(Seurat)
+library(tidyverse)
+```
+
+# Let us Create Seurat object from the files from:
+https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE151974
+
+```{r}
+uni_mat = read.csv("GSE151974_raw_umi_matrix_postfilter.csv", row.names = 1)
+uni_mat = as(as.matrix(uni_mat),"dgCMatrix")
+
+meta = read.csv("GSE151974_cell_metadata_postfilter.csv", row.names = 1)
+seurat = CreateSeuratObject(counts = uni_mat, meta.data = meta)
+seurat = subset(seurat, subset = Oxygen == "Normoxia")
+seurat@meta.data$dataset = "Hurskainen"
+#saveRDS(seurat, "Hurskainen_mouse_lung_WT.rds")
+```
+
+# We run standard Seurat workflow
+```{r}
+#seurat_hurskainen = readRDS("Hurskainen_mouse_lung_WT.rds")
+seurat_hurskainen = seurat
+all.genes <- rownames(seurat_hurskainen)
+
+seurat_hurskainen <- NormalizeData(seurat_hurskainen)
+seurat_hurskainen <- ScaleData(seurat_hurskainen, features = all.genes)
+seurat_hurskainen <- RunPCA(seurat_hurskainen, features = all.genes)
+
+seurat_hurskainen <- FindNeighbors(seurat_hurskainen, dims = 1:30)
+seurat_hurskainen <- FindClusters(seurat_hurskainen, resolution = 1)
+
+seurat_hurskainen <- RunUMAP(seurat_hurskainen, dims = 1:30)
+DimPlot(seurat_hurskainen, reduction = "umap", label = T, repel = T) + NoLegend()
+saveRDS(seurat_hurskainen, "Hurskainen_mouse_lung_WT.rds")
+
+```
+
+# We will analyze for key cDC2 and fibroblast markers
+```{r}
+seurat_hurskainen = readRDS("Hurskainen_mouse_lung_WT.rds")
+DotPlot(seurat_hurskainen, 
+        features = c("Itgam","Sirpa","Mgl2", "Flt3", "Xcr1","Pdgfra","Epcam","Itgae"),
+        group.by = "seurat_clusters"
+        )
+DimPlot(seurat_hurskainen, label = T, repel = T) + NoLegend()
+```
+
+```{r}
+pdf(file = paste0("hurs_cl",".pdf"), width = 4, height = 6)
+p = DimPlot(seurat_hurskainen, reduction = "umap", pt.size = 0.5, 
+        label = F, repel = T, group.by = "seurat_clusters") + NoLegend() +
+  ggtitle("UMAP clusters Hurskainen et al.  ") + ylab("UMAP 2") + xlab("UMAP 1")
+LabelClusters(p, id = "seurat_clusters",  fontface = "bold", color = "black")
+dev.off()
+```
+
+```{r}
+pdf(file = "hurs_dc_fibro.pdf", width = 7, height = 8)
+Stacked_VlnPlot(seurat_object = seurat_hurskainen, 
+                group.by = "seurat_clusters",
+                features = rev(c( "Flt3", "Itgam", "Mgl2", 
+                                  "Xcr1", "Siglech", "Ccr7", 
+                                  "Pdgfra", "Col1a1", "Epcam")),
+                x_lab_rotate = 90) & 
+  theme(axis.title.y = element_text(angle = 90))
+dev.off()
+```
+
+We will take cluster 35 as cDC2
+```{r}
+seurat_hurskainen_cDC2 = subset(seurat_hurskainen, subset = seurat_clusters %in%
+                               c(35))
+
+```
+
+We will take clusters 6,7,11,13,26,34 as fibroblasts 
+```{r}
+seurat_hurskainen_fibro = subset(seurat_hurskainen, subset = seurat_clusters %in%
+                                 c(6,7,11,13,26,34))
+```
