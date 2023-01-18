@@ -245,6 +245,7 @@ shared_pairs_df = nichenet_overlay[nichenet_overlay$Interaction %in%
                                      shared_pairs,]
 ```
 
+# Let's check expression levels of ligands and receptors in the adv. fibroblasts and cDC2s
 ```{r}
 pdf(file = "adv_fibro_lig.pdf", width = 6, height = 4)
 Stacked_VlnPlot(adv_fibro, features = unique(shared_pairs_df$y),
@@ -256,13 +257,10 @@ Stacked_VlnPlot(true_cDC2, features = shared_pairs_df$x, group.by = "new_celltyp
 dev.off()
 ```
 
-
 We will make a Venn diagram out of both sets
 ```{r}
 library(VennDiagram)
-```
 
-```{r}
 venn.diagram(
   
         # 1
