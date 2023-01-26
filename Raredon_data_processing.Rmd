@@ -8,6 +8,8 @@ output: html_document
 ```{r}
 library(Seurat)
 library(tidyverse)
+library(scCustomize)
+
 ```
 
 # We will create a Seurat object from the files found in for male and female mouse
@@ -60,14 +62,26 @@ DimPlot(seurat_raredon, reduction = "umap", label = T, repel = T) + NoLegend()
 dev.off()
 
 saveRDS(seurat_raredon, "Raredon_combined_mouse_lung_WT.rds")
+seurat_raredon = readRDS("Raredon_combined_mouse_lung_WT.rds")
 ```
 
 ```{r}
-pdf(file = paste0("rare_cl",".pdf"), width = 4, height = 6)
+pdf(file = paste0("rare_cl",".pdf"), width = 6, height = 6)
 p = DimPlot(seurat_raredon, reduction = "umap", pt.size = 0.5, 
         label = F, repel = T, group.by = "seurat_clusters") + NoLegend() +
   ggtitle("UMAP clusters Raredon et al.") + ylab("UMAP 2") + xlab("UMAP 1")
 LabelClusters(p, id = "seurat_clusters",  fontface = "bold", color = "black")
+dev.off()
+```
+
+```{r}
+pdf(file = "rare_qc.pdf", width = 6, height = 4)
+Stacked_VlnPlot(seurat_object = seurat_raredon, 
+                group.by = "seurat_clusters",
+                features = rev(c( "nCount_RNA", "nFeature_RNA")),
+                x_lab_rotate = 90) & 
+  theme(axis.title.y = element_text(angle = 90),
+        axis.text.y = element_text(angle = 90, hjust = 0.5))
 dev.off()
 ```
 
@@ -85,11 +99,42 @@ DotPlot(seurat_raredon,
 pdf(file = "rare_dc_fibro.pdf", width = 7, height = 8)
 Stacked_VlnPlot(seurat_object = seurat_raredon, 
                 group.by = "seurat_clusters",
-                features = rev(c( "Flt3", "Itgam", "Mgl2", 
+                features = rev(c( "Flt3", "Itgam", "Mgl2", "Sirpa",
                                   "Xcr1", "Siglech", "Ccr7", 
                                   "Pdgfra", "Col1a1", "Epcam")),
                 x_lab_rotate = 90) & 
-  theme(axis.title.y = element_text(angle = 90))
+  theme(axis.title.y = element_text(angle = 90),
+        axis.text.y = element_text(angle = 90, hjust = 0.5))
+dev.off()
+```
+
+
+```{r}
+rare_markers = FindAllMarkers(seurat_raredon)
+saveRDS(rare_markers, "rare_markers.rds")
+rare_markers = readRDS("rare_markers.rds")
+
+source(file = "custom_functions.R")
+
+
+myPalette <- colorRampPalette(rev(brewer.pal(11, "Spectral")), space="Lab")
+```
+
+
+```{r}
+top_features = top_N_featuers_per_cluster(rare_markers, N = 10)
+
+pdf(file = "rare_heat.pdf", width = 6, height = 8)
+
+DoHeatmap(seurat_raredon, label = T, group.colors = hcl.colors(20,"dynamic"),
+          features = c("Flt3","Sirpa","Itgam","Mgl2", "Ccr7", "Xcr1",
+                       "Pdgfra", "Gli1", "Pi16", "Col1a1",
+                                  top_features$Cluster_17,
+                                  top_features$Cluster_5 )) +
+  scale_fill_gradientn(colours = myPalette(100)) +
+ggtitle("Top 10 differentially expressed genes for\nclusters 17 and 5 from Raredon et al.") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
 dev.off()
 ```
 

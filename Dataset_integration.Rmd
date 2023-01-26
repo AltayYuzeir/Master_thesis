@@ -9,6 +9,7 @@ output: html_document
 ```{r}
 library(Seurat)
 library(tidyverse)
+library(scCustomize)
 ```
 
 # Integrate cDC2
@@ -41,22 +42,24 @@ all_cDC2s <- FindNeighbors(all_cDC2s, dims = 1:30)
 all_cDC2s <- FindClusters(all_cDC2s, resolution = 1.0)
 
 saveRDS(all_cDC2s, "all_cDC2s_integrated.rds")
+all_cDC2s = readRDS("all_cDC2s_integrated.rds")
 ```
 
 
 Now we will examine some key cDC2 maerker expression
 ```{r}
 pdf(file = paste0("dc_int",".pdf"), width = 7, height = 8)
-Stacked_VlnPlot(all_cDC2s, features = rev(c("Flt3", "Itgam", "Mgl2",
+Stacked_VlnPlot(all_cDC2s, features = rev(c("Flt3", "Itgam", "Mgl2", "Sirpa",
                                         "Xcr1","Siglech", "Ccr7")),
                   group.by = "seurat_clusters", x_lab_rotate = 90) & 
-  theme(axis.title.y = element_text(angle = 90))
+  theme(axis.title.y = element_text(angle = 90),
+        axis.text.y = element_text(angle = 90, hjust = 0.5))
 dev.off()
 
 ```
 
 ```{r}
-pdf(file = paste0("dc_cl",".pdf"), width = 4, height = 6)
+pdf(file = paste0("dc_cl",".pdf"), width = 6, height = 6)
 p = DimPlot(all_cDC2s, reduction = "umap", pt.size = 2,
         label = F, repel = T, group.by = "seurat_clusters") + NoLegend() + 
   ggtitle("UMAP clusters Raredon and\nHurskainen - integrated DCs") + 
@@ -65,36 +68,55 @@ LabelClusters(p, id = "seurat_clusters",  fontface = "bold", color = "black")
 dev.off()
 ```
 
+```{r}
+pdf(file = "cDC2_qc.pdf", width = 6, height = 4)
+Stacked_VlnPlot(seurat_object = all_cDC2s, 
+                group.by = "seurat_clusters",
+                features = rev(c( "nCount_RNA", "nFeature_RNA")),
+                x_lab_rotate = 90) & 
+  theme(axis.title.y = element_text(angle = 90),
+        axis.text.y = element_text(angle = 90, hjust = 0.5))
+dev.off()
+```
+
+
 We will now find all markers and make a heatmap with top genes from the custom function
 ```{r}
 all_cDC2s_markers = FindAllMarkers(all_cDC2s, assay = "integrated")
 #saveRDS(all_cDC2s_markers, "all_cDC2s_integrated_markers.rds")
-#all_cDC2s_markers = readRDS("all_cDC2s_integrated_markers.rds")
+all_cDC2s_markers = readRDS("all_cDC2s_integrated_markers.rds")
 
 source(file = "custom_functions.R")
 
+
+myPalette <- colorRampPalette(rev(brewer.pal(11, "Spectral")), space="Lab")
+```
+
+
+```{r}
 top_features = top_N_featuers_per_cluster(all_cDC2s_markers, N = 10)
 
-DoHeatmap(all_cDC2s, assay = "integrated", features = c("Xcr1","Flt3","Sirpa","Itgam","Mgl2",
+pdf(file = "cDC2_heat.pdf", width = 6, height = 8)
+DoHeatmap(all_cDC2s, assay = "integrated", label = T,
+          group.colors = hcl.colors(5, "dynamic"),
+          features = c("Flt3","Sirpa","Itgam","Mgl2", "Ccr7", "Xcr1",
                                   top_features$Cluster_0,
-                                  top_features$Cluster_1,
-                                  top_features$Cluster_2,
-                                  top_features$Cluster_3,
-                                  top_features$Cluster_4))
-
-
-DoHeatmap(all_cDC2s, assay = "integrated", 
-          features = c("Xcr1","Cd8a","Clec9a",
-                       "Itgam","Sirpa","Mgl2", "Ptpcr","Cxcr5","Cxcr3", "Dpp4"))
-
+                                  top_features$Cluster_1)) +
+    scale_fill_gradientn(colours = myPalette(100)) + 
+  ggtitle("Top 10 differentially expressed genes for\nclusters 0,1 - integrated cDC2s") + theme(plot.title = element_text(hjust = 0.5))
+dev.off()
 ```
 
 From what we have seen, we will take clusters 0,1 as true cDC2
 ```{r}
 true_cDC2 = all_cDC2s
+
 true_cDC2@meta.data$new_celltype[true_cDC2@meta.data$seurat_clusters %in% c(0,1)] = "cDC2"
 
 true_cDC2@meta.data$new_celltype[!true_cDC2@meta.data$seurat_clusters %in% c(0,1)] = "non_cDC2"
+
+true_cDC2_subset = subset(true_cDC2, subset = seurat_clusters %in% c("0","1"))
+
 ```
 
 # Integrate fibroblasts
@@ -125,12 +147,12 @@ all_fibro <- FindNeighbors(all_fibro, dims = 1:30)
 all_fibro <- FindClusters(all_fibro, resolution = 1.0)
 
 saveRDS(all_fibro, "all_fibro_integrated.rds")
-
+all_fibro = readRDS("all_fibro_integrated.rds")
 ```
 
 We will investigate key characteristics of the fibroblasts
 ```{r}
-pdf(file = paste0("fib_cl",".pdf"), width = 4, height = 6)
+pdf(file = paste0("fib_cl",".pdf"), width = 6, height = 6)
 p = DimPlot(all_fibro, reduction = "umap", group.by = "seurat_clusters", repel = T,
         label = F) + NoLegend() + ylab("UMAP 2") + xlab("UMAP 1") + 
   ggtitle("UMAP clusters Tsukui, Raredon,    \nHurskainen - integrated fibroblasts       ")
@@ -139,22 +161,66 @@ dev.off()
 ```
 
 ```{r}
+pdf(file = "fib_qc.pdf", width = 6, height = 4)
+Stacked_VlnPlot(seurat_object = all_fibro, 
+                group.by = "seurat_clusters",
+                features = rev(c( "nCount_RNA", "nFeature_RNA")),
+                x_lab_rotate = 90) & 
+  theme(axis.title.y = element_text(angle = 90),
+        axis.text.y = element_text(angle = 90, hjust = 0.5))
+dev.off()
+```
+
+
+```{r}
+all_fibro_markers = FindAllMarkers(all_fibro, assay = "integrated")
+#saveRDS(all_fibro_markers, "all_fibro_integrated_markers.rds")
+all_fibro_markers = readRDS("all_fibro_integrated_markers.rds")
+
+source(file = "custom_functions.R")
+
+myPalette <- colorRampPalette(rev(brewer.pal(11, "Spectral")), space="Lab")
+```
+
+
+```{r}
+top_features = top_N_featuers_per_cluster(all_fibro_markers, N = 10)
+
+pdf(file = "fibro_heat.pdf", width = 6, height = 8)
+
+DoHeatmap(all_fibro, assay = "integrated", label = T, 
+          group.colors = hcl.colors(20,"dynamic"),
+          features = c(
+  "Pdgfra", "Col1a1", "Col13a1", "Col14a1",
+                                  top_features$Cluster_6,
+                                  top_features$Cluster_9,
+                                  top_features$Cluster_11)) + 
+  scale_fill_gradientn(colours = myPalette(100)) +
+  ggtitle("Top 10 differentially expressed genes for\nclusters 6,9,11 - integrated fibroblasts") + theme(plot.title = element_text(hjust = 0.5))
+dev.off()
+```
+
+
+```{r}
 pdf(file = paste0("fibro_int",".pdf"), width = 7, height = 8)
 Stacked_VlnPlot(all_fibro,
                 features = rev(c("Pi16","Gli1","Pdgfra", "Col1a1")),
                 group.by = "seurat_clusters",
                 x_lab_rotate = 90) & 
-  theme(axis.title.y = element_text(angle = 90))
+  theme(axis.title.y = element_text(angle = 90),
+        axis.text.y = element_text(angle = 90, hjust = 0.5))
 dev.off()
 ```
 
 From what we have seen, we will take clusters 6,9,11 as adventitial fibroblasts
 ```{r}
-true_adv_fibro = subset(all_fibro, subset = seurat_clusters %in% c("6","9","11"))
 
 adv_fibro = all_fibro
 adv_fibro@meta.data$new_celltype[adv_fibro@meta.data$seurat_clusters %in% c(6,9,11)] = "Adventitial_Fibroblasts"
 
 adv_fibro@meta.data$new_celltype[!adv_fibro@meta.data$seurat_clusters %in% c(6,9,11)] = "non_Adventitial_Fibroblasts"
+
+true_adv_fibro = subset(adv_fibro, subset = seurat_clusters %in% c("6","9","11"))
+
 ```
 

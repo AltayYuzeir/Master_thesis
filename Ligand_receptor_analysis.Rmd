@@ -5,6 +5,12 @@ date: "2022-12-22"
 output: html_document
 ---
 
+```{r}
+library(scCustomize)
+library(tidyverse)
+```
+
+
 # Merge the cDC2 and Fibroblast into single Seurat object
 ```{r}
 
@@ -88,7 +94,7 @@ saveRDS(liana_all_methods, "Fibro_cDC2_combined_mouse_all_methods.rds")
 
 # We will now plot the resulting data, but we weill use a custom function for better plotting. This function merged Liana funtion with SCpubr function
 ```{r}
-#liana_all_methods = readRDS("Fibro_cDC2_combined_mouse_all_methods.rds")
+liana_all_methods = readRDS("Fibro_cDC2_combined_mouse_all_methods.rds")
 liana_agg = liana_aggregate(liana_all_methods)
 
 source(file = "custom_functions.R")
@@ -141,8 +147,54 @@ int3 = int[!int %in% int2]
 int3 # unique interactions with cDC2 targets only
 ```
 
+```{r}
+interaction_data = top_interaction
+interaction_data$natmi.edge_specificity = interaction_data$specificity
+interaction_data$sca.LRscore = interaction_data$magnitude
+
+table_liana = as.data.frame(cbind(interaction_data$interaction, 
+                    interaction_data$cytotalk.crosstalk_score,
+                    interaction_data$logfc.logfc_comb,
+                    interaction_data$connectome.weight_sc,
+                    interaction_data$natmi.edge_specificity,
+                    interaction_data$sca.LRscore,
+                    interaction_data$cellphonedb.pvalue))
+colnames(table_liana) = c("Interaction","cytotalk.crosstalk_score",
+                          "logfc.logfc_comb","connectome.weight_sc",
+                          "natmi.edge_specificity", "sca.LRscore",
+                          "cellphonedb.pvalue")
+for(i in 2:ncol(table_liana)) table_liana[,i] = parse_number(table_liana[,i])
+
+table_liana[,2:7] = signif(table_liana[,2:7], digits = 2)
+
+write.csv(table_liana, file = "liana_table.csv", row.names = F)
+```
+
+# We will create a heatmap from all methods and pairs
+```{r}
+data_liana = pivot_longer(table_liana, 
+                    cols = -c(1),
+                    names_to = "Method",
+                    values_to = "Score")
+```
+
+```{r}
+myPalette <- colorRampPalette(rev(brewer.pal(11, "Spectral")), space="Lab")
+
+pdf(file = "LIANA_heat.pdf", width = 6, height = 8)
+ggplot(data = data_liana, mapping = aes(x = Method,
+                                                        y = Interaction,
+                                                        fill = Score)) + 
+  geom_tile() + theme_minimal()+ ggtitle("Score for top 40 interactions based on LIANA methods")+theme(plot.title = element_text(hjust = 0.5))+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+      scale_fill_gradientn(colours = myPalette(100))
+dev.off()
+```
+
+
 # We will try to varify our pairs with NicheNet
 ```{r}
+source(file = "custom_functions.R")
 seurat_nichenet = merge(x = true_cDC2, y = adv_fibro, add.cell.ids = c("c","f"))
 DefaultAssay(seurat_nichenet) = "RNA"
 Idents(seurat_nichenet) = "new_celltype"
@@ -182,7 +234,7 @@ DE_table_receiver = FindMarkers(object = seurat_nichenet, ident.1 = receiver.cel
 
 ```{r}
 source(file = "custom_functions.R")
-nichenet_data = nichenetr_all_genes(seurat_final, 
+nichenet_data = nichenetr_all_genes(seurat_nichenet, 
                                     receiver.cells, 
                                     sender.cells, 
                                     DE_table_receiver,
@@ -240,27 +292,34 @@ pairs_nichenet = nichenet_overlay$Interaction
 saveRDS(pairs_liana, "pairs_liana.rds")
 saveRDS(pairs_nichenet, "pairs_nichenet.rds")
 
+pairs_liana = readRDS("pairs_liana.rds")
+pairs_nichenet = readRDS("pairs_nichenet.rds")
+
 shared_pairs = pairs_nichenet[pairs_nichenet %in% pairs_liana]
 shared_pairs_df = nichenet_overlay[nichenet_overlay$Interaction %in% 
                                      shared_pairs,]
 ```
 
-# Let's check expression levels of ligands and receptors in the adv. fibroblasts and cDC2s
 ```{r}
 pdf(file = "adv_fibro_lig.pdf", width = 6, height = 4)
 Stacked_VlnPlot(adv_fibro, features = unique(shared_pairs_df$y),
-                group.by = "new_celltype")
+                group.by = "new_celltype") 
 dev.off()
 
 pdf(file = "cDC2_rec.pdf", width = 6, height = 4)
-Stacked_VlnPlot(true_cDC2, features = shared_pairs_df$x, group.by = "new_celltype")
+Stacked_VlnPlot(true_cDC2, features = shared_pairs_df$x, 
+                group.by = "new_celltype") 
+
 dev.off()
 ```
+
 
 We will make a Venn diagram out of both sets
 ```{r}
 library(VennDiagram)
+```
 
+```{r}
 venn.diagram(
   
         # 1
