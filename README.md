@@ -5,5 +5,5 @@ On the topic "Improvement of ligand receptor: inference by spatial OMICs"\
 Group of Prof. Dr. Andreas Schlitzer\
 Under the supervision of Dr. Jiangyan Yu
 
-1. Workflow on public scRNAseq data integration and analysis 
+1. Workflow on public scRNAseq datasets analysis and integration 
 2. Ligand-receptor analysis
